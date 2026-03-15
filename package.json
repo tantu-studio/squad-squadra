@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "lint": "eslint src/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "vault": "npx tsx src/scripts/vault.ts"
   },
   "author": "Xavier Marti Bofill",
   "license": "MIT",
