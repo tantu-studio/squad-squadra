@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.tgz
+
+# Private trip data — each user's travel plans and personal info.
+# Back up to cloud storage, not git.
+trips/
