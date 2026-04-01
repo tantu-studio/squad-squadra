@@ -66,8 +66,14 @@ function slugify(name: string): string {
 
 // --- Commands ---
 
-function createTrip(name: string): void {
-	const slug = slugify(name);
+function createTrip(name: string, date: string): void {
+	// date is YYYY-MM — validate format
+	if (!/^\d{4}-\d{2}$/.test(date)) {
+		console.error(`Invalid date format: ${date}. Expected YYYY-MM (e.g., 2026-04).`);
+		process.exit(1);
+	}
+
+	const slug = `${date}-${slugify(name)}`;
 	const dir = join(TRIPS_DIR, slug);
 
 	if (existsSync(dir)) {
@@ -178,11 +184,12 @@ function showTrip(tripName: string): void {
 // --- CLI ---
 
 const USAGE = `Usage:
-  npm run vault create-trip <name>
+  npm run vault create-trip <YYYY-MM> <name>
   npm run vault add <trip> <type> <name>
   npm run vault list
   npm run vault show <trip>
 
+Trip folders are named: YYYY-MM-<slug> (e.g., 2026-04-cotswolds)
 Entity types: traveler, place, accommodation, transport, day, research, attachment`;
 
 const args = process.argv.slice(2);
@@ -190,12 +197,13 @@ const command = args[0];
 
 switch (command) {
 	case "create-trip": {
-		const name = args.slice(1).join(" ");
-		if (!name) {
-			console.error("Usage: npm run vault create-trip <name>");
+		const date = args[1];
+		const name = args.slice(2).join(" ");
+		if (!date || !name) {
+			console.error("Usage: npm run vault create-trip <YYYY-MM> <name>");
 			process.exit(1);
 		}
-		createTrip(name);
+		createTrip(name, date);
 		break;
 	}
 	case "add": {
