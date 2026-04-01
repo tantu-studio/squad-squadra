@@ -41,6 +41,15 @@ const nearby = nearbyFromResearch(
 );
 ```
 
+## Itinerary structure
+
+Itineraries live in each trip's `itinerary/` folder, not as a single file in the trip root.
+
+- **`itinerary/_index.md`** — Overview: at-a-glance table, booked meals, links to daily files.
+- **`itinerary/day-N.md`** — One file per day. Frontmatter has `day`, `date` (YYYY-MM-DD), and `title`.
+
+Daily files start as lightweight summaries (stops, meals, key highlights). When the user requests a deep dive, expand that day's file with timing suggestions, detailed stop descriptions, practical info (hours, prices, tips), and hidden gems from research data. Use the `/daily-itinerary` skill for writing detailed daily files.
+
 ## Conventions
 
 See [Tantu base conventions](https://github.com/tantu-studio/tantu/blob/master/docs/CLAUDE_BASE.md).

@@ -6,8 +6,8 @@
  * query and filter the data.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { type LatLng, filterByDistance } from "./geo.js";
 import { type PlacePreview, searchArea } from "./sources/atlas-obscura.js";
 
@@ -22,6 +22,23 @@ export interface ResearchPlace {
   coordinates: LatLng;
   distanceFromCenter: number;
   url: string;
+}
+
+export interface NearbyPlace {
+  name: string;
+  source: "atlas-obscura" | "wikivoyage";
+  type: string;
+  coordinates: LatLng;
+  distanceKm: number;
+  description?: string;
+  url?: string;
+  phone?: string;
+  email?: string;
+  hours?: string;
+  price?: string;
+  directions?: string;
+  section?: string;
+  article?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,4 +194,215 @@ export async function fetchAndWriteAtlasObscura(
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, md);
   return places.length;
+}
+
+// ---------------------------------------------------------------------------
+// Wikivoyage parsing
+// ---------------------------------------------------------------------------
+
+interface WikivoyageParsedListing {
+  name: string;
+  type: string;
+  lat?: number;
+  lng?: number;
+  description?: string;
+  url?: string;
+  phone?: string;
+  email?: string;
+  hours?: string;
+  price?: string;
+  directions?: string;
+  alt?: string;
+  section: string;
+  article: string;
+}
+
+/**
+ * Parse a dumped Wikivoyage article file and extract all listings with coordinates.
+ */
+export function parseWikivoyageResearch(filePath: string): WikivoyageParsedListing[] {
+  const content = readFileSync(filePath, "utf-8");
+  const listings: WikivoyageParsedListing[] = [];
+
+  // Extract article title from frontmatter
+  const titleMatch = content.match(/^title:\s*"(.+)"$/m);
+  const article = titleMatch?.[1] ?? "";
+
+  // Track current section heading
+  let currentSection = "";
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    // Track section headings
+    const headingMatch = lines[i].match(/^#{2,}\s+(.+)$/);
+    if (headingMatch) {
+      currentSection = headingMatch[1].trim();
+      continue;
+    }
+
+    // Match listing line: - **Name**
+    const nameMatch = lines[i].match(/^- \*\*(.+?)\*\*$/);
+    if (!nameMatch) continue;
+
+    const listing: WikivoyageParsedListing = {
+      name: nameMatch[1],
+      type: "listing",
+      section: currentSection,
+      article,
+    };
+
+    // Next line has metadata: type: see | coords: 51.93, -1.724 | phone: ...
+    const metaLine = lines[i + 1];
+    if (metaLine && metaLine.startsWith("  ")) {
+      const meta = metaLine.trim();
+
+      const typeMatch = meta.match(/(?:^|\| )type: (\w+)/);
+      if (typeMatch) listing.type = typeMatch[1];
+
+      const coordsMatch = meta.match(/coords: (-?[\d.]+), (-?[\d.]+)/);
+      if (coordsMatch) {
+        listing.lat = parseFloat(coordsMatch[1]);
+        listing.lng = parseFloat(coordsMatch[2]);
+      }
+
+      const phoneMatch = meta.match(/(?:^|\| )phone: ([^|]+)/);
+      if (phoneMatch) listing.phone = phoneMatch[1].trim();
+
+      const emailMatch = meta.match(/(?:^|\| )email: ([^|]+)/);
+      if (emailMatch) listing.email = emailMatch[1].trim();
+
+      const urlMatch = meta.match(/(?:^|\| )url: ([^|]+)/);
+      if (urlMatch) listing.url = urlMatch[1].trim();
+
+      const hoursMatch = meta.match(/(?:^|\| )hours: ([^|]+)/);
+      if (hoursMatch) listing.hours = hoursMatch[1].trim();
+
+      const priceMatch = meta.match(/(?:^|\| )price: ([^|]+)/);
+      if (priceMatch) listing.price = priceMatch[1].trim();
+
+      const dirMatch = meta.match(/(?:^|\| )directions: ([^|]+)/);
+      if (dirMatch) listing.directions = dirMatch[1].trim();
+
+      const altMatch = meta.match(/(?:^|\| )alt: ([^|]+)/);
+      if (altMatch) listing.alt = altMatch[1].trim();
+    }
+
+    // Line after metadata might be the description
+    const descIdx = metaLine?.startsWith("  ") ? i + 2 : i + 1;
+    const descLine = lines[descIdx];
+    if (descLine && descLine.startsWith("  ") && !descLine.match(/^- \*\*/)) {
+      listing.description = descLine.trim();
+    }
+
+    listings.push(listing);
+  }
+
+  return listings;
+}
+
+// ---------------------------------------------------------------------------
+// Unified nearby search
+// ---------------------------------------------------------------------------
+
+export interface NearbyFilter {
+  /** Wikivoyage listing types: "see", "do", "eat", "drink", "sleep", "buy" */
+  types?: string[];
+  /** Sources to include. Defaults to all. */
+  sources?: Array<"atlas-obscura" | "wikivoyage">;
+}
+
+/**
+ * Find places near a point from all research sources in a trip's research folder.
+ *
+ * Reads Atlas Obscura and Wikivoyage research files and returns a unified
+ * list sorted by distance, with the source identified on each result.
+ *
+ * @example
+ * ```ts
+ * // Everything within 5km
+ * nearbyPlaces("trips/.../research", center, 5);
+ *
+ * // Just restaurants and pubs within 2km
+ * nearbyPlaces("trips/.../research", center, 2, { types: ["eat", "drink"] });
+ *
+ * // Only Atlas Obscura hidden gems
+ * nearbyPlaces("trips/.../research", center, 10, { sources: ["atlas-obscura"] });
+ * ```
+ */
+export function nearbyPlaces(
+  researchDir: string,
+  center: LatLng,
+  radiusKm: number,
+  filter?: NearbyFilter,
+): NearbyPlace[] {
+  const allowedTypes = filter?.types ? new Set(filter.types.map((t) => t.toLowerCase())) : null;
+  const allowedSources = filter?.sources ? new Set(filter.sources) : null;
+  const results: NearbyPlace[] = [];
+
+  // Atlas Obscura
+  if (!allowedSources || allowedSources.has("atlas-obscura")) {
+    // Atlas Obscura places pass type filter if "hidden-gem" is in types, or no type filter is set
+    const atlasPassesType = !allowedTypes || allowedTypes.has("hidden-gem");
+    if (atlasPassesType) {
+      const atlasFile = join(researchDir, "atlas-obscura.md");
+      if (existsSync(atlasFile)) {
+        const places = parseAtlasObscuraResearch(atlasFile);
+        const nearby = filterByDistance(places, (p) => p.coordinates, center, radiusKm);
+        for (const p of nearby) {
+          results.push({
+            name: p.name,
+            source: "atlas-obscura",
+            type: "hidden-gem",
+            coordinates: p.coordinates,
+            distanceKm: p.distanceKm,
+            description: p.summary,
+            url: p.url,
+          });
+        }
+      }
+    }
+  }
+
+  // Wikivoyage — scan all files in wikivoyage/ subfolder
+  if (!allowedSources || allowedSources.has("wikivoyage")) {
+    const wikiDir = join(researchDir, "wikivoyage");
+    if (existsSync(wikiDir)) {
+      const files = readdirSync(wikiDir).filter((f) => f.endsWith(".md") && f !== "_index.md");
+      for (const file of files) {
+        const listings = parseWikivoyageResearch(join(wikiDir, file));
+        const withCoords = listings.filter((l) => l.lat != null && l.lng != null);
+        const filtered = allowedTypes
+          ? withCoords.filter((l) => allowedTypes.has(l.type.toLowerCase()))
+          : withCoords;
+        const nearby = filterByDistance(
+          filtered,
+          (l) => ({ lat: l.lat!, lng: l.lng! }),
+          center,
+          radiusKm,
+        );
+        for (const l of nearby) {
+          results.push({
+            name: l.name,
+            source: "wikivoyage",
+            type: l.type,
+            coordinates: { lat: l.lat!, lng: l.lng! },
+            distanceKm: l.distanceKm,
+            description: l.description,
+            url: l.url,
+            phone: l.phone,
+            email: l.email,
+            hours: l.hours,
+            price: l.price,
+            directions: l.directions,
+            section: l.section,
+            article: l.article,
+          });
+        }
+      }
+    }
+  }
+
+  // Sort everything by distance
+  results.sort((a, b) => a.distanceKm - b.distanceKm);
+  return results;
 }

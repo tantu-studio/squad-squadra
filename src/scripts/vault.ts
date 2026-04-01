@@ -4,6 +4,8 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, statSy
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { getDestination, searchDestinations } from "../sources/wikivoyage.js";
+import { articleToMarkdown, buildIndex } from "../sources/wikivoyage-dump.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -181,11 +183,67 @@ function showTrip(tripName: string): void {
 	tree(dir);
 }
 
+async function fetchWikivoyage(tripName: string, destinations: string[]): Promise<void> {
+	const dir = tripDir(tripName);
+	const wikiDir = join(dir, "research", "wikivoyage");
+	mkdirSync(wikiDir, { recursive: true });
+
+	const today = new Date().toISOString().slice(0, 10);
+	const indexEntries: Array<{ title: string; slug: string; sectionCount: number; listingCount: number }> = [];
+
+	for (const dest of destinations) {
+		console.log(`Fetching: ${dest}...`);
+		const article = await getDestination(dest);
+
+		if (article === null) {
+			console.error(`  Not found. Searching for suggestions...`);
+			const suggestions = await searchDestinations(dest, 5);
+			if (suggestions.length > 0) {
+				console.error(`  Did you mean: ${suggestions.join(", ")}?`);
+			}
+			continue;
+		}
+
+		const fileSlug = slugify(article.title);
+		const filePath = join(wikiDir, `${fileSlug}.md`);
+		const content = articleToMarkdown(article, today);
+
+		const listingCount = article.sections.reduce((sum, s) => sum + s.listings.length, 0);
+		writeFileSync(filePath, content);
+		console.log(`  → research/wikivoyage/${fileSlug}.md (${article.sections.length} sections, ${listingCount} listings)`);
+
+		indexEntries.push({
+			title: article.title,
+			slug: fileSlug,
+			sectionCount: article.sections.length,
+			listingCount,
+		});
+	}
+
+	// Read existing index entries if present
+	const indexPath = join(wikiDir, "_index.md");
+	if (existsSync(indexPath)) {
+		const existing = readFileSync(indexPath, "utf-8");
+		const tableRows = existing.match(/^\| \[.+\]\(.+\) \| .+ \| \d+ \| \d+ \|$/gm) || [];
+		for (const row of tableRows) {
+			const match = row.match(/^\| \[(.+?)\.md\]\(.+?\) \| (.+?) \| (\d+) \| (\d+) \|$/);
+			if (match && !indexEntries.some((e) => e.slug === match[1])) {
+				indexEntries.push({ title: match[2], slug: match[1], sectionCount: Number(match[3]), listingCount: Number(match[4]) });
+			}
+		}
+	}
+
+	indexEntries.sort((a, b) => a.title.localeCompare(b.title));
+	writeFileSync(indexPath, buildIndex(indexEntries, today));
+	console.log(`  → research/wikivoyage/_index.md (${indexEntries.length} articles)`);
+}
+
 // --- CLI ---
 
 const USAGE = `Usage:
   npm run vault create-trip <YYYY-MM> <name>
   npm run vault add <trip> <type> <name>
+  npm run vault fetch-wikivoyage <trip> <dest1> [dest2] ...
   npm run vault list
   npm run vault show <trip>
 
@@ -214,6 +272,16 @@ switch (command) {
 			process.exit(1);
 		}
 		addEntity(trip, type, name);
+		break;
+	}
+	case "fetch-wikivoyage": {
+		const trip = args[1];
+		const dests = args.slice(2);
+		if (!trip || dests.length === 0) {
+			console.error("Usage: npm run vault fetch-wikivoyage <trip> <dest1> [dest2] ...");
+			process.exit(1);
+		}
+		await fetchWikivoyage(trip, dests);
 		break;
 	}
 	case "list": {

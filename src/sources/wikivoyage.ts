@@ -12,8 +12,13 @@
  *   - Capital:  {{Eat|name=...|content=...}}
  */
 
+import { ProxyAgent } from "undici";
+
 const API_BASE = "https://en.wikivoyage.org/w/api.php";
 const USER_AGENT = "SquadSquadra/0.1 (travel-planner; contact@tantu.studio)";
+
+const proxyUrl = process.env.HTTP_PROXY ?? process.env.http_proxy;
+const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 
 // -- Types ------------------------------------------------------------------
 
@@ -58,7 +63,8 @@ async function apiRequest(params: Record<string, string>): Promise<unknown> {
 
   const response = await fetch(url.toString(), {
     headers: { "User-Agent": USER_AGENT },
-  });
+    ...(dispatcher && { dispatcher }),
+  } as RequestInit);
 
   if (!response.ok) {
     throw new Error(`Wikivoyage API error: ${response.status} ${response.statusText}`);
