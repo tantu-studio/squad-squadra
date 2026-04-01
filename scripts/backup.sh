@@ -36,4 +36,7 @@ cd "$SCRIPT_DIR" && node --import tsx/esm src/scripts/export-html.ts 2>&1 | tee 
   --stats-one-line \
   "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}"
 
+# Remove local HTML files — they only need to live in Drive
+find "$TRIPS_DIR" -name "itinerary-html" -type d -exec rm -rf {} + 2>/dev/null || true
+
 echo "$(date '+%Y-%m-%d %H:%M:%S') — Backup complete" | tee -a "$LOG_FILE"

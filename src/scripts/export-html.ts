@@ -82,18 +82,30 @@ function extractTitle(md: string, filename: string): string {
 }
 
 let converted = 0;
-const mdFiles = walkMarkdownFiles(TRIPS_DIR);
 
-for (const mdPath of mdFiles) {
-	const raw = readFileSync(mdPath, "utf-8");
-	const clean = stripFrontmatter(raw);
-	const title = extractTitle(raw, mdPath);
-	const body = marked.parse(clean) as string;
-	const html = toHtml(title, body);
+// Only convert itinerary files for each trip
+for (const trip of readdirSync(TRIPS_DIR)) {
+	const tripDir = join(TRIPS_DIR, trip);
+	if (!statSync(tripDir).isDirectory()) continue;
 
-	const htmlPath = mdPath.replace(/\.md$/, ".html");
-	writeFileSync(htmlPath, html);
-	converted++;
+	const itineraryDir = join(tripDir, "itinerary");
+	const outputDir = join(tripDir, "itinerary-html");
+	const mdFiles = walkMarkdownFiles(itineraryDir);
+	if (mdFiles.length === 0) continue;
+
+	mkdirSync(outputDir, { recursive: true });
+
+	for (const mdPath of mdFiles) {
+		const raw = readFileSync(mdPath, "utf-8");
+		const clean = stripFrontmatter(raw);
+		const title = extractTitle(raw, mdPath);
+		const body = marked.parse(clean) as string;
+		const html = toHtml(title, body);
+
+		const htmlPath = join(outputDir, basename(mdPath).replace(/\.md$/, ".html"));
+		writeFileSync(htmlPath, html);
+		converted++;
+	}
 }
 
 console.log(`Exported ${converted} HTML file(s) from trips/`);
