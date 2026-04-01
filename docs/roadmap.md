@@ -78,8 +78,8 @@ CLI scripts to manage trips and entities without doing everything freehand.
 
 Investigate what external data sources are available for enriching trip planning.
 
-- [ ] Research travel APIs — pricing, rate limits, access requirements, data quality (Google Maps, Yelp, TripAdvisor, OpenWeatherMap, Atlas Obscura, Timeout, Skyscanner, Booking, etc.)
-- [ ] Evaluate scraping vs API for sources without public APIs
-- [ ] Prioritize by value and feasibility
+- [x] Research travel APIs — pricing, rate limits, access requirements, data quality (Google Maps, Yelp, TripAdvisor, OpenWeatherMap, Atlas Obscura, Timeout, Skyscanner, Booking, etc.)
+- [x] Evaluate scraping vs API for sources without public APIs
+- [x] Prioritize by value and feasibility
 
-**Result:** Clear picture of what data is available, at what cost, and what's worth integrating.
+**Result:** Full research in [docs/api-research.md](docs/api-research.md). 15+ sources evaluated, 7 recommended for integration (all free-tier viable), clear integration order defined.
